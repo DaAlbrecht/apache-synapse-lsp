@@ -77,9 +77,11 @@ impl LanguageServer for Backend {
                     ..CompletionItem::default()
                 },
                 CompletionItem {
-                    label: "PayloadFactory".to_string(),
+                    label: "log".to_string(),
                     kind: Some(CompletionItemKind::KEYWORD),
-                    detail: Some("PayloadFactory".to_string()),
+                    detail: Some(
+                        include_str!("./apache-synapse/mediators/log-mediator.md").to_string(),
+                    ),
                     ..CompletionItem::default()
                 },
             ],
