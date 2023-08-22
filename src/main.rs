@@ -39,7 +39,7 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let contents = HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: format!("Hello, world!\n\n```rust\n{:?}\n```", params),
+            value: include_str!("./apache-synapse/mediators/log-mediator.md").to_string(),
         });
 
         let range = Some(Range {
@@ -79,9 +79,11 @@ impl LanguageServer for Backend {
                 CompletionItem {
                     label: "log".to_string(),
                     kind: Some(CompletionItemKind::KEYWORD),
-                    detail: Some(
-                        include_str!("./apache-synapse/mediators/log-mediator.md").to_string(),
-                    ),
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: include_str!("./apache-synapse/mediators/log-mediator.md")
+                            .to_string(),
+                    })),
                     ..CompletionItem::default()
                 },
             ],
