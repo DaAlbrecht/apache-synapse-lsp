@@ -2,6 +2,7 @@ use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+mod apache_synapse;
 
 #[derive(Debug)]
 struct Backend {
@@ -27,6 +28,7 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        apache_synapse::init_apache_synapse_mediators();
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
@@ -39,7 +41,7 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let contents = HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: include_str!("./apache-synapse/mediators/log-mediator.md").to_string(),
+            value: include_str!("./apache_synapse/mediators/log-mediator.md").to_string(),
         });
 
         let range = Some(Range {
@@ -70,23 +72,10 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let completion_list = CompletionList {
             is_incomplete: false,
-            items: vec![
-                CompletionItem {
-                    label: "Hello, world!".to_string(),
-                    kind: Some(CompletionItemKind::TEXT),
-                    ..CompletionItem::default()
-                },
-                CompletionItem {
-                    label: "log".to_string(),
-                    kind: Some(CompletionItemKind::KEYWORD),
-                    documentation: Some(Documentation::MarkupContent(MarkupContent {
-                        kind: MarkupKind::Markdown,
-                        value: include_str!("./apache-synapse/mediators/log-mediator.md")
-                            .to_string(),
-                    })),
-                    ..CompletionItem::default()
-                },
-            ],
+            items: apache_synapse::APACHE_SYNAPSE_MEDIATORS
+                .get()
+                .unwrap()
+                .clone(),
         };
 
         Ok(Some(CompletionResponse::List(completion_list)))
