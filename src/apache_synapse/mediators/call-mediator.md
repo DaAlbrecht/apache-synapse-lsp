@@ -2,6 +2,8 @@
 
 The **Call mediator** is used to send messages out of the Micro Integrator to an **endpoint**. You can invoke services either in blocking or non-blocking manner.
 
+---
+
 ## Syntax
 
 ``` java
