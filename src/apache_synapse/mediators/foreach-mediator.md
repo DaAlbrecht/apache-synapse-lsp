@@ -19,6 +19,7 @@ The ForEach mediator creates the following properties during mediation.
 | FOREACH_COUNTER           | This contains the count of the messages processed. The message count increases during each iteration. |
 
 ## Note
+
 [Iterate Mediator](https://apim.docs.wso2.com/en/latest/reference/mediators/iterate-mediator/) is quite similar to the ForEach
 mediator. You can use complex XPath expressions to conditionally select
 elements to iterate over in both mediators. Following are the main
