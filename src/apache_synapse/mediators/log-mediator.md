@@ -13,5 +13,4 @@ used to log messages being mediated.
 <log [level="string"] [separator="string"]>
    <property name="string" (value="literal" | expression="[XPath|json-eval(JSON Path)]")/>*
 </log>
-
 ```

@@ -17,24 +17,25 @@ external data source or specified inline.
 The syntax of the DBLookup mediator changes depending on whether you connect to the database using a connection pool, or using a data source. Click on the relevant tab to view the required syntax.
 
 -   **Connection Pool**
-    ``` java
-    <dblookup>
-       <connection>
-          <pool>
-            <driver/>
-            <url/>
-            <user/>
-            <password/>
-            <property name="name" value="value"/>*
-          </pool>
-       </connection>
-       <statement>
-          <sql>select something from table where something_else = ?</sql>
-          <parameter [value="" | expression=""] type="CHAR|VARCHAR|LONGVARCHAR|NUMERIC|DECIMAL|BIT|TINYINT|SMALLINT|INTEGER|BIGINT|REAL|FLOAT|DOUBLE|DATE|TIME|TIMESTAMP"/>*
-          <result name="string" column="int|string"/>*
-       </statement>+
-    </dblookup>
-    ```
+
+``` java
+<dblookup>
+   <connection>
+      <pool>
+        <driver/>
+        <url/>
+        <user/>
+        <password/>
+        <property name="name" value="value"/>*
+      </pool>
+   </connection>
+   <statement>
+      <sql>select something from table where something_else = ?</sql>
+      <parameter [value="" | expression=""] type="CHAR|VARCHAR|LONGVARCHAR|NUMERIC|DECIMAL|BIT|TINYINT|SMALLINT|INTEGER|BIGINT|REAL|FLOAT|DOUBLE|DATE|TIME|TIMESTAMP"/>*
+      <result name="string" column="int|string"/>*
+   </statement>+
+</dblookup>
+```
 
 -   **Data source**
     The syntax of the DBLookup mediator further differs based on whether the connection to the database is made using an external datasource or a Carbon datasource.

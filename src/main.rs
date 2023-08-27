@@ -16,11 +16,9 @@ impl LanguageServer for Backend {
             capabilities: ServerCapabilities {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
-                    resolve_provider: None,
                     trigger_characters: Some(vec!["<".to_string()]),
-                    ..CompletionOptions::default()
+                    ..Default::default()
                 }),
-
                 ..ServerCapabilities::default()
             },
             ..Default::default()

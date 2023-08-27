@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::{fs::File, io::Write, sync::OnceLock};
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind};
 

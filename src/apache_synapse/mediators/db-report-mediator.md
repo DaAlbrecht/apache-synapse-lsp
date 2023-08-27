@@ -16,31 +16,31 @@ The syntax of the DB Report mediator changes depending on whether you connect to
 
 -   **Connection Pool**
 
-    ``` java
-    <dbreport>
-       <connection>
-         <pool>
-          (
-            <driver/>
-            <url/>
-            <user/>
-            <password/>
+``` java
+<dbreport>
+   <connection>
+     <pool>
+      (
+        <driver/>
+        <url/>
+        <user/>
+        <password/>
 
-            <dsName/>
-            <icClass/>
-            <url/>
-            <user/>
-            <password/>
-          )
-            <property name="name" value="value"/>*
-         </pool>
-       </connection>
-       <statement>
-           <sql>insert into something values(?, ?, ?, ?)</sql>
-          <parameter [value="" | expression=""] type="CHAR|VARCHAR|LONGVARCHAR|NUMERIC|DECIMAL|BIT|TINYINT|SMALLINT|INTEGER|BIGINT|REAL|FLOAT|DOUBLE|DATE|TIME|TIMESTAMP"/>*
-       </statement>+
-    </dbreport>
-    ```
+        <dsName/>
+        <icClass/>
+        <url/>
+        <user/>
+        <password/>
+      )
+        <property name="name" value="value"/>*
+     </pool>
+   </connection>
+   <statement>
+       <sql>insert into something values(?, ?, ?, ?)</sql>
+      <parameter [value="" | expression=""] type="CHAR|VARCHAR|LONGVARCHAR|NUMERIC|DECIMAL|BIT|TINYINT|SMALLINT|INTEGER|BIGINT|REAL|FLOAT|DOUBLE|DATE|TIME|TIMESTAMP"/>*
+   </statement>+
+</dbreport>
+```
 
 -   **Data source**
 

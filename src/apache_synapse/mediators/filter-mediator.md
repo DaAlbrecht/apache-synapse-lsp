@@ -14,7 +14,7 @@ The Filter mediator is a [conditionally content aware](https://apim.docs.wso2.co
 
 ## Syntax
 
-``` java
+```java
 <filter (source="[XPath|json-eval(JSONPath)]" regex="string") | xpath="[XPath|json-eval(JSONPath)]">
    mediator+
 </filter>
@@ -24,7 +24,7 @@ This mediator could also be used to handle a scenario where two
 different sequences are applied to messages that meet the filter
 criteria and messages that do not meet the filter criteria.
 
-``` java
+```java
 <filter (source="[XPath|json-eval(JSONPath)]" regex="string") | xpath="[XPath|json-eval(JSONPath)]">
    <then [sequence="string"]>
      mediator+
