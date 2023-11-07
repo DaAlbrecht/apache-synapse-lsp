@@ -1,12 +1,16 @@
+use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tree_sitter::parse;
 mod apache_synapse;
+mod tree_sitter;
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
+    document_map: DashMap<String, Rope>,
 }
 
 #[tower_lsp::async_trait]
@@ -37,34 +41,34 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let contents = HoverContents::Markup(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: include_str!("./apache_synapse/mediators/log-mediator.md").to_string(),
-        });
-
-        let range = Some(Range {
-            start: Position {
-                line: 0,
-                character: 0,
-            },
-            end: Position {
-                line: 0,
-                character: 0,
-            },
-        });
-        Ok(Some(Hover { contents, range }))
+        Ok(Some(Hover {
+            contents: HoverContents::Scalar(MarkedString::String("Hello, World!".to_string())),
+            range: None,
+        }))
     }
 
-    async fn did_open(&self, _: DidOpenTextDocumentParams) {
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
         self.client
             .log_message(MessageType::INFO, "file opened!")
             .await;
+        self.on_change(TextDocumentItem {
+            uri: params.text_document.uri,
+            text: params.text_document.text,
+            version: params.text_document.version,
+        })
+        .await
     }
 
-    async fn did_change(&self, _: DidChangeTextDocumentParams) {
+    async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
         self.client
             .log_message(MessageType::INFO, "file changed!")
             .await;
+        self.on_change(TextDocumentItem {
+            uri: params.text_document.uri,
+            text: std::mem::take(&mut params.content_changes[0].text),
+            version: params.text_document.version,
+        })
+        .await
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -84,11 +88,17 @@ struct TextDocumentItem {
     text: String,
     version: i32,
 }
-
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
-        let mut rope = Rope::from_str(&params.text);
-        //parse the text
+        let rope = ropey::Rope::from_str(&params.text);
+        self.document_map.insert(params.uri.to_string(), rope);
+        let tree = parse(&params.text);
+        self.client
+            .log_message(MessageType::INFO, format!("tree: {:?}", tree))
+            .await;
+        self.client
+            .log_message(MessageType::INFO, format!("file changed: {}", params.uri))
+            .await;
     }
 }
 
@@ -99,7 +109,11 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend { client });
+    let (service, socket) = LspService::build(|client| Backend {
+        client,
+        document_map: DashMap::new(),
+    })
+    .finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }
