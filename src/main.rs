@@ -1,3 +1,4 @@
+use ::tree_sitter::{Point, Tree};
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
@@ -11,6 +12,7 @@ mod tree_sitter;
 struct Backend {
     client: Client,
     document_map: DashMap<String, Rope>,
+    tree_map: DashMap<String, Tree>,
 }
 
 #[tower_lsp::async_trait]
@@ -23,6 +25,9 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec!["<".to_string()]),
                     ..Default::default()
                 }),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
                 ..ServerCapabilities::default()
             },
             ..Default::default()
@@ -41,8 +46,22 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let rope = self
+            .document_map
+            .get(&uri.to_string())
+            .expect("File not found");
+        let tree = self.tree_map.get(&uri.to_string()).expect("Tree not found");
+        let position = params.text_document_position_params.position;
+        let mut tree_cursor = tree.root_node().walk();
+        let point = Point::new(position.line as usize, position.character as usize);
+        let index = tree_cursor.goto_first_child_for_point(point);
         Ok(Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String("Hello, World!".to_string())),
+            contents: HoverContents::Scalar(MarkedString::String(format!(
+                "hover: {:?} index: {:?}",
+                tree_cursor.node(),
+                index
+            ))),
             range: None,
         }))
     }
@@ -90,15 +109,21 @@ struct TextDocumentItem {
 }
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
-        let rope = ropey::Rope::from_str(&params.text);
-        self.document_map.insert(params.uri.to_string(), rope);
-        let tree = parse(&params.text);
-        self.client
-            .log_message(MessageType::INFO, format!("tree: {:?}", tree))
-            .await;
         self.client
             .log_message(MessageType::INFO, format!("file changed: {}", params.uri))
             .await;
+        let rope = ropey::Rope::from_str(&params.text);
+        self.document_map.insert(params.uri.to_string(), rope);
+        match parse(&params.text) {
+            Ok(tree) => {
+                self.tree_map.insert(params.uri.to_string(), tree.tree);
+            }
+            Err(e) => {
+                self.client
+                    .log_message(MessageType::ERROR, format!("error: {}", e))
+                    .await;
+            }
+        }
     }
 }
 
@@ -112,6 +137,7 @@ async fn main() {
     let (service, socket) = LspService::build(|client| Backend {
         client,
         document_map: DashMap::new(),
+        tree_map: DashMap::new(),
     })
     .finish();
 
