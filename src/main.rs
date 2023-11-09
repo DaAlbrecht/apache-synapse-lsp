@@ -55,15 +55,29 @@ impl LanguageServer for Backend {
         let position = params.text_document_position_params.position;
         let mut tree_cursor = tree.root_node().walk();
         let point = Point::new(position.line as usize, position.character as usize);
-        let index = tree_cursor.goto_first_child_for_point(point);
-        Ok(Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String(format!(
-                "hover: {:?} index: {:?}",
-                tree_cursor.node(),
-                index
-            ))),
-            range: None,
-        }))
+        tree_cursor.goto_first_child_for_point(point);
+        let hovered_node = tree_cursor
+            .node()
+            .children(&mut tree_cursor)
+            .find(|child| child.start_position() <= point && child.end_position() >= point);
+
+        match hovered_node {
+            Some(node) => match node.kind() {
+                "mediator" => {
+                    let mediator_name = node.named_child(0).expect("mediator name not found");
+                    let hover = Hover {
+                        contents: HoverContents::Scalar(MarkedString::String(format!(
+                            "Mediator: {}",
+                            mediator_name.kind()
+                        ))),
+                        range: None,
+                    };
+                    Ok(Some(hover))
+                }
+                _ => Ok(None),
+            },
+            None => todo!(),
+        }
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
