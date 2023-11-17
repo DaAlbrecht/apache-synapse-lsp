@@ -874,9 +874,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-apachesynapse"
-version = "0.0.1"
+version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5561aa46bebcf78986a1f7982b54bcd932d0f533c58a4471b625457a0ae3e5cd"
+checksum = "31a2a3c938659f284cef48acdb9ddc614810fc23caf304b9e813725a1249907b"
 dependencies = [
  "cc",
  "tree-sitter",

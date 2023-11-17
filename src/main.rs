@@ -1,4 +1,5 @@
 use ::tree_sitter::{Point, Tree};
+use apache_synapse::TEXT_STORE;
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
@@ -35,7 +36,7 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        apache_synapse::init_apache_synapse_mediators();
+        apache_synapse::init_text_store();
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
@@ -47,36 +48,30 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
-        let rope = self
-            .document_map
-            .get(&uri.to_string())
-            .expect("File not found");
         let tree = self.tree_map.get(&uri.to_string()).expect("Tree not found");
         let position = params.text_document_position_params.position;
-        let mut tree_cursor = tree.root_node().walk();
         let point = Point::new(position.line as usize, position.character as usize);
-        tree_cursor.goto_first_child_for_point(point);
-        let hovered_node = tree_cursor
-            .node()
-            .children(&mut tree_cursor)
-            .find(|child| child.start_position() <= point && child.end_position() >= point);
-
-        match hovered_node {
-            Some(node) => match node.kind() {
-                "mediator" => {
-                    let mediator_name = node.named_child(0).expect("mediator name not found");
-                    let hover = Hover {
-                        contents: HoverContents::Scalar(MarkedString::String(format!(
-                            "Mediator: {}",
-                            mediator_name.kind()
-                        ))),
-                        range: None,
-                    };
-                    Ok(Some(hover))
-                }
-                _ => Ok(None),
-            },
-            None => todo!(),
+        let node = tree
+            .root_node()
+            .descendant_for_point_range(point, point)
+            .expect("Node not found")
+            .parent();
+        match node {
+            Some(node) => {
+                let kind = node.kind();
+                Ok(Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(
+                        TEXT_STORE
+                            .get()
+                            .expect("Text store not initialized")
+                            .get(kind)
+                            .expect("Kind not found")
+                            .to_string(),
+                    )),
+                    range: None,
+                }))
+            }
+            None => Ok(None),
         }
     }
 
