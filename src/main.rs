@@ -1,5 +1,5 @@
 use ::tree_sitter::{Point, Tree};
-use apache_synapse::TEXT_STORE;
+use apache_synapse::lib::{init_stores, APACHE_SYNAPSE_MEDIATORS, TEXT_STORE};
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
@@ -36,7 +36,7 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        apache_synapse::init_text_store();
+        init_stores();
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
@@ -59,17 +59,17 @@ impl LanguageServer for Backend {
         match node {
             Some(node) => {
                 let kind = node.kind();
-                Ok(Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(
-                        TEXT_STORE
-                            .get()
-                            .expect("Text store not initialized")
-                            .get(kind)
-                            .expect("Kind not found")
-                            .to_string(),
-                    )),
-                    range: None,
-                }))
+                let kind = TEXT_STORE
+                    .get()
+                    .expect("Text store not initialized")
+                    .get(kind);
+                match kind {
+                    Some(kind) => Ok(Some(Hover {
+                        contents: HoverContents::Scalar(MarkedString::String(kind.to_string())),
+                        range: None,
+                    })),
+                    None => Ok(None),
+                }
             }
             None => Ok(None),
         }
@@ -102,15 +102,13 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let completion_list = CompletionList {
             is_incomplete: false,
-            items: apache_synapse::APACHE_SYNAPSE_MEDIATORS
-                .get()
-                .unwrap()
-                .clone(),
+            items: APACHE_SYNAPSE_MEDIATORS.get().unwrap().clone(),
         };
 
         Ok(Some(CompletionResponse::List(completion_list)))
     }
 }
+
 struct TextDocumentItem {
     uri: Url,
     text: String,
