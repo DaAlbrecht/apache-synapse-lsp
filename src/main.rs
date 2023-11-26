@@ -1,5 +1,5 @@
 use ::tree_sitter::{Point, Tree};
-use apache_synapse::lib::{init_stores, APACHE_SYNAPSE_MEDIATORS, TEXT_STORE};
+use apache_synapse::lib::{init_stores, APACHE_SYNAPSE_COMPLETION_STORE, TEXT_STORE};
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
@@ -102,7 +102,7 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let completion_list = CompletionList {
             is_incomplete: false,
-            items: APACHE_SYNAPSE_MEDIATORS.get().unwrap().clone(),
+            items: APACHE_SYNAPSE_COMPLETION_STORE.get().unwrap().clone(),
         };
 
         Ok(Some(CompletionResponse::List(completion_list)))
