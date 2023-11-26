@@ -1,13 +1,11 @@
 use ::tree_sitter::{Point, Tree};
-use apache_synapse::lib::{init_stores, APACHE_SYNAPSE_COMPLETION_STORE, TEXT_STORE};
+use apache_synapse::{init_stores, APACHE_SYNAPSE_MEDIATORS, TEXT_STORE};
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use tree_sitter::parse;
-mod apache_synapse;
-mod tree_sitter;
+use tree_sitter_parser::parse;
 
 #[derive(Debug)]
 struct Backend {
@@ -102,7 +100,10 @@ impl LanguageServer for Backend {
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let completion_list = CompletionList {
             is_incomplete: false,
-            items: APACHE_SYNAPSE_COMPLETION_STORE.get().unwrap().clone(),
+            items: APACHE_SYNAPSE_MEDIATORS
+                .get()
+                .expect("Mediators not initialized")
+                .clone(),
         };
 
         Ok(Some(CompletionResponse::List(completion_list)))
