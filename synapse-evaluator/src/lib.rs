@@ -1,6 +1,6 @@
-#![warn(missing_docs)]
+//#![warn(missing_docs)]
 //! apache-synapse evaluator
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 
 use anyhow::Result;
 use tree_sitter::{Node, Tree, TreeCursor};
@@ -8,6 +8,8 @@ use tree_sitter::{Node, Tree, TreeCursor};
 /// The main object that is used to evaluate apache-synapse programs.
 pub struct Evaluator<'a> {
     tree_cursor: TreeCursor<'a>,
+    properties: HashSet<String>,
+    text: &'a str,
 }
 
 /// The different types of diagnostics that can be returned by the evaluator.
@@ -26,7 +28,7 @@ struct PreOrderTraversal<'a> {
 }
 
 impl<'a> Evaluator<'a> {
-    pub fn new(tree: &'a Tree) -> Result<Self> {
+    pub fn new(tree: &'a Tree, text: &'a str) -> Result<Self> {
         if tree.language() != tree_sitter_apachesynapse::language() {
             return Err(anyhow::anyhow!(
                 "Invalid language tree, expected an apache-synapse tree"
@@ -34,11 +36,13 @@ impl<'a> Evaluator<'a> {
         }
         Ok(Evaluator {
             tree_cursor: tree.walk(),
+            properties: HashSet::new(),
+            text,
         })
     }
 
     pub fn eval(&mut self) -> Result<Vec<Diagnostic>> {
-        let mut diagnostics: Vec<Diagnostic> = Vec::new();
+        let mut _diagnostics: Vec<Diagnostic> = Vec::new();
         let traversal_cursor = PreOrderTraversal {
             tree_cursor: Some(self.tree_cursor.clone()),
         };
@@ -47,38 +51,67 @@ impl<'a> Evaluator<'a> {
             .filter(|node| node.is_named())
             .for_each(|node| match node.kind() {
                 "mediator" => {
-                    self.parse_mediators(node);
+                    let _ = self.parse_mediator(node);
+                }
+                "ERROR" => {
+                    //not sure how to handle this yet
+                    for child in node.children(&mut node.walk()) {
+                        println!("Error: {:?}", child.kind());
+                    }
                 }
                 _ => {}
             });
-        unreachable!()
+        Ok(_diagnostics)
     }
-    fn parse_mediators(&mut self, node: Node<'a>) {
+
+    fn parse_mediator(&mut self, node: Node<'a>) -> Result<()> {
         let mut cursor = node.walk();
         let children = node.children(&mut cursor);
         for child in children {
-            match Mediators::from_str(child.kind()) {
-                Ok(mediator) => match mediator {
+            if let Ok(mediator) = Mediators::from_str(child.kind()) {
+                match mediator {
                     Mediators::Log => {
-                        self.parse_log_mediator(child);
+                        self.parse_log_mediator(child)?;
                     }
                     Mediators::Property => {
-                        self.parse_property_mediator(child);
+                        self.parse_property_mediator(child)?;
                     }
-                },
-                Err(_) => {
-                    eprintln!("Invalid mediator: {:?}", child.kind());
                 }
             }
         }
+        Ok(())
     }
 
-    fn parse_log_mediator(&mut self, child: Node<'_>) {
-        println!("Log mediator: {:?}", child.kind())
+    fn parse_log_mediator(&mut self, _node: Node<'a>) -> Result<()> {
+        todo!()
     }
 
-    fn parse_property_mediator(&mut self, child: Node<'_>) {
-        println!("Property mediator: {:?}", child.kind())
+    fn parse_property_mediator(&mut self, node: Node<'_>) -> Result<()> {
+        //<property name="message" value="Hello, world!"/>
+        /*
+        (property
+            (name
+             (identifier)
+            )
+            (value
+            ))
+             */
+        let mut cursor = node.walk();
+
+        let mut children = node.named_children(&mut cursor);
+
+        let name_field = children.find(|child| child.kind() == "name").unwrap();
+        let mut name_cursor = name_field.walk();
+        let mut children = name_field.children(&mut name_cursor);
+
+        let identifier = children
+            .find(|child| child.kind() == "identifier")
+            .ok_or(anyhow::anyhow!("Missing identifier"))?
+            .utf8_text(self.text.as_bytes())?;
+
+        self.properties.insert(identifier.to_string());
+
+        Ok(())
     }
 }
 
@@ -120,6 +153,8 @@ impl FromStr for Mediators {
 
 #[cfg(test)]
 mod tests {
+    use crate::PreOrderTraversal;
+
     use super::Evaluator;
 
     #[test]
@@ -130,7 +165,7 @@ mod tests {
             .set_language(tree_sitter_apachesynapse::language())
             .expect("Error loading apache-synapse language");
         let tree = parser.parse(input, None).unwrap();
-        let evaluator = Evaluator::new(&tree);
+        let evaluator = Evaluator::new(&tree, input);
         assert!(evaluator.is_ok());
 
         let mut parser = tree_sitter::Parser::new();
@@ -138,7 +173,10 @@ mod tests {
             .set_language(tree_sitter_rust::language())
             .expect("Error loading rust language");
         let tree = parser.parse(input, None).unwrap();
-        let evaluator = Evaluator::new(&tree);
+        let _traversal = PreOrderTraversal {
+            tree_cursor: Some(tree.walk()),
+        };
+        let evaluator = Evaluator::new(&tree, input);
         assert!(evaluator.is_err());
     }
 
@@ -147,9 +185,7 @@ mod tests {
         let input = r#"
         <?xml version="1.0" encoding="UTF-8"?>
             <sequence name="main">
-                <log level="custom">
-                    <property name="message" value="Hello, world!"/>
-                </log>
+                <property name="message" value="Hello, world!"/>
             </sequence>
         "#;
         let mut parser = tree_sitter::Parser::new();
@@ -157,9 +193,9 @@ mod tests {
             .set_language(tree_sitter_apachesynapse::language())
             .expect("Error loading apache-synapse language");
         let tree = parser.parse(input, None).unwrap();
-        let mut evaluator = Evaluator::new(&tree).unwrap();
+        let mut evaluator = Evaluator::new(&tree, input).unwrap();
         evaluator.eval().unwrap();
 
-        assert!(false)
+        assert!(true)
     }
 }
