@@ -1,9 +1,12 @@
 //#![warn(missing_docs)]
 //! apache-synapse evaluator
-use std::{collections::HashSet, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use anyhow::Result;
-use tree_sitter::{Node, Tree, TreeCursor};
+use tree_sitter::{Node, Query, QueryCursor, Tree, TreeCursor};
 
 /// The main object that is used to evaluate apache-synapse programs.
 pub struct Evaluator<'a> {
@@ -83,35 +86,79 @@ impl<'a> Evaluator<'a> {
     }
 
     fn parse_log_mediator(&mut self, _node: Node<'a>) -> Result<()> {
+        //if the error handling is not handled here, than this is not needed
         todo!()
     }
 
     fn parse_property_mediator(&mut self, node: Node<'_>) -> Result<()> {
-        //<property name="message" value="Hello, world!"/>
-        /*
-        (property
-            (name
-             (identifier)
+        let query_string = r#"[
+           (_
+               (name
+                   (identifier) @name
+                   )
+               (value
+               )
             )
-            (value
-            ))
-             */
-        let mut cursor = node.walk();
+            (_
+             (name
+              (identifier)@name)
+             (expression
+              (_)*
+              )@expression
+             )
 
-        let mut children = node.named_children(&mut cursor);
+        ]"#;
 
-        let name_field = children.find(|child| child.kind() == "name").unwrap();
-        let mut name_cursor = name_field.walk();
-        let mut children = name_field.children(&mut name_cursor);
+        let props = self.query_props(query_string, node);
 
-        let identifier = children
-            .find(|child| child.kind() == "identifier")
-            .ok_or(anyhow::anyhow!("Missing identifier"))?
-            .utf8_text(self.text.as_bytes())?;
+        //if the expression contains a $ctx: then we need to make sure that the property is defined
+        if let Some(expression) = props.get("expression") {
+            if expression.contains("$ctx:") {
+                let ctx_prop = expression
+                    .split_once("$ctx:")
+                    .ok_or_else(|| anyhow::anyhow!("Invalid expression"))?
+                    .1
+                    .strip_suffix('"')
+                    .ok_or_else(|| anyhow::anyhow!("Invalid expression"))?;
+                if !self.properties.contains(ctx_prop) {
+                    println!("Property {} is not defined", ctx_prop);
+                    return Err(anyhow::anyhow!("Property {} is not defined", ctx_prop));
+                }
+            }
+        }
 
-        self.properties.insert(identifier.to_string());
-
+        if let Some(name) = props.get("name") {
+            self.properties.insert(name.to_owned());
+        }
         Ok(())
+    }
+
+    fn query_props(&mut self, query_string: &str, node: Node) -> HashMap<String, String> {
+        let query = Query::new(tree_sitter_apachesynapse::language(), query_string)
+            .unwrap_or_else(|e| panic!("Error creating query: {}", e));
+
+        let mut query_cursor = QueryCursor::new();
+
+        let capture_names = query.capture_names();
+
+        let matches = query_cursor.matches(&query, node, self.text.as_bytes());
+        matches
+            .into_iter()
+            .flat_map(|m| m.captures)
+            .fold(HashMap::new(), |mut acc, capture| {
+                let key = capture_names[capture.index as usize].to_owned();
+                let value = if let Ok(capture_value) = capture.node.utf8_text(self.text.as_bytes())
+                {
+                    capture_value.to_owned()
+                } else {
+                    eprintln!("Error getting capture value");
+                    "".to_owned()
+                };
+
+                acc.insert(key, value);
+
+                acc
+            })
     }
 }
 
@@ -181,11 +228,14 @@ mod tests {
     }
 
     #[test]
-    fn iterate_tree() {
+    fn property_mediator() {
         let input = r#"
         <?xml version="1.0" encoding="UTF-8"?>
             <sequence name="main">
                 <property name="message" value="Hello, world!"/>
+                <property name="message" value="Hello, world!"/>
+                <property name="foo" value="Hello, world!"/>
+                <property name="baz" expression="$ctx:foo" />
             </sequence>
         "#;
         let mut parser = tree_sitter::Parser::new();
@@ -196,6 +246,33 @@ mod tests {
         let mut evaluator = Evaluator::new(&tree, input).unwrap();
         evaluator.eval().unwrap();
 
-        assert!(true)
+        println!("{:?}", evaluator.properties);
+
+        assert!(evaluator.properties.len() == 3);
+        assert!(evaluator.properties.contains("message"));
+        assert!(evaluator.properties.contains("foo"));
+        assert!(evaluator.properties.contains("baz"));
+    }
+
+    #[test]
+    fn log_mediator() {
+        let input = r#"
+        <?xml version="1.0" encoding="UTF-8"?>
+            <sequence name="main">
+                <log level="custom">
+                    <property name="message" value="Hello, world!"/>
+                    <property name="foo" expression="$ctx:message" />
+                </log>
+            </sequence>
+        "#;
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_apachesynapse::language())
+            .expect("Error loading apache-synapse language");
+        let tree = parser.parse(input, None).unwrap();
+        let mut evaluator = Evaluator::new(&tree, input).unwrap();
+        evaluator.eval().unwrap();
+        assert!(evaluator.properties.len() == 2);
+        assert!(evaluator.properties.contains("message"));
     }
 }
