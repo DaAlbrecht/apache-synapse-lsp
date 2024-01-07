@@ -57,10 +57,10 @@ impl<'a> Evaluator<'a> {
                     let _ = self.parse_mediator(node);
                 }
                 "ERROR" => {
-                    //not sure how to handle this yet
-                    for child in node.children(&mut node.walk()) {
-                        println!("Error: {:?}", child.kind());
-                    }
+                    let tag_name = node
+                        .utf8_text(self.text.as_bytes())
+                        .expect("Error getting tag name");
+                    println!("Error parsing tag {}", tag_name);
                 }
                 _ => {}
             });
@@ -69,25 +69,31 @@ impl<'a> Evaluator<'a> {
 
     fn parse_mediator(&mut self, node: Node<'a>) -> Result<()> {
         let mut cursor = node.walk();
-        let children = node.children(&mut cursor);
-        for child in children {
-            if let Ok(mediator) = Mediators::from_str(child.kind()) {
-                match mediator {
-                    Mediators::Log => {
-                        self.parse_log_mediator(child)?;
-                    }
-                    Mediators::Property => {
-                        self.parse_property_mediator(child)?;
-                    }
+        let node_type = node.named_children(&mut cursor).next();
+        match node_type {
+            Some(mediator_typ) => match Mediators::from_str(mediator_typ.kind()) {
+                Ok(mediator) => match mediator {
+                    Mediators::Log => self.parse_log_mediator(node),
+                    Mediators::Property => self.parse_property_mediator(node),
+                },
+                Err(mediator_err) => {
+                    println!("Error parsing mediator: {}", mediator_err);
+                    Err(anyhow::anyhow!("Error parsing mediator: {}", mediator_err))
                 }
-            }
+            },
+            None => Err(anyhow::anyhow!("Invalid node")),
         }
-        Ok(())
     }
 
-    fn parse_log_mediator(&mut self, _node: Node<'a>) -> Result<()> {
-        //if the error handling is not handled here, than this is not needed
-        todo!()
+    fn parse_log_mediator(&mut self, node: Node<'a>) -> Result<()> {
+        let query_string = r#"(_
+        (mediator)@mediator
+        )"#;
+
+        let props = self.query_props(query_string, node);
+
+        println!("{:?}", props);
+        Ok(())
     }
 
     fn parse_property_mediator(&mut self, node: Node<'_>) -> Result<()> {
@@ -275,4 +281,28 @@ mod tests {
         assert!(evaluator.properties.len() == 2);
         assert!(evaluator.properties.contains("message"));
     }
+    /*
+        #[test]
+        fn log_mediator_wrong_level() {
+            let input = r#"
+            <?xml version="1.0" encoding="UTF-8"?>
+                <sequence name="main">
+                    <log level="foo">
+                        <property name="message" value="Hello, world!"/>
+                        <property name="foo" expression="$ctx:message" />
+                    </log>
+                </sequence>
+            "#;
+            let mut parser = tree_sitter::Parser::new();
+            parser
+                .set_language(tree_sitter_apachesynapse::language())
+                .expect("Error loading apache-synapse language");
+            let tree = parser.parse(input, None).unwrap();
+            let mut evaluator = Evaluator::new(&tree, input).unwrap();
+            evaluator.eval().unwrap();
+            assert!(evaluator.properties.len() == 2);
+            assert!(evaluator.properties.contains("message"));
+            assert!(false)
+        }
+    */
 }
