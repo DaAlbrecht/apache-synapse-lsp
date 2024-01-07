@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use tree_sitter::{Node, Query, QueryCursor, Tree, TreeCursor};
+use tree_sitter::{Node, Point, Query, QueryCursor, Tree, TreeCursor};
 
 /// The main object that is used to evaluate apache-synapse programs.
 pub struct Evaluator<'a> {
@@ -16,9 +16,22 @@ pub struct Evaluator<'a> {
 }
 
 /// The different types of diagnostics that can be returned by the evaluator.
+#[derive(Debug)]
 pub enum Diagnostic {
-    Error,
-    Warning,
+    Error(Error),
+    Warning(Warning),
+}
+
+#[derive(Debug)]
+struct Error {
+    message: String,
+    position: Point,
+}
+
+#[derive(Debug)]
+struct Warning {
+    message: String,
+    position: Point,
 }
 
 pub enum Mediators {
@@ -28,6 +41,12 @@ pub enum Mediators {
 
 struct PreOrderTraversal<'a> {
     tree_cursor: Option<TreeCursor<'a>>,
+}
+
+#[derive(Debug)]
+struct CaptureDetails {
+    value: String,
+    end_position: Point,
 }
 
 impl<'a> Evaluator<'a> {
@@ -45,39 +64,48 @@ impl<'a> Evaluator<'a> {
     }
 
     pub fn eval(&mut self) -> Result<Vec<Diagnostic>> {
-        let mut _diagnostics: Vec<Diagnostic> = Vec::new();
-        let traversal_cursor = PreOrderTraversal {
-            tree_cursor: Some(self.tree_cursor.clone()),
-        };
+        let mut diagnostics: Vec<Diagnostic> = Vec::new();
+        let mut cursor = self.tree_cursor.clone();
 
-        traversal_cursor
-            .filter(|node| node.is_named())
-            .for_each(|node| match node.kind() {
-                "mediator" => {
-                    let _ = self.parse_mediator(node);
+        //TODO: not hardcore to sequence
+        let mut children = self
+            .tree_cursor
+            .node()
+            .named_children(&mut cursor)
+            .filter(|node| node.kind() == "sequence_definition");
+
+        let mut cursor = children.next().unwrap().walk();
+
+        let children = cursor
+            .node()
+            .named_children(&mut cursor)
+            .filter(|node| node.kind() == "mediator");
+
+        for child in children {
+            match self.parse_mediator(child) {
+                Ok(Some(child_diagnostics)) => {
+                    diagnostics.extend(child_diagnostics);
                 }
-                "ERROR" => {
-                    let tag_name = node
-                        .utf8_text(self.text.as_bytes())
-                        .expect("Error getting tag name");
-                    println!("Error parsing tag {}", tag_name);
+                Ok(None) => {}
+                Err(err) => {
+                    anyhow::bail!(err);
                 }
-                _ => {}
-            });
-        Ok(_diagnostics)
+            }
+        }
+
+        Ok(diagnostics)
     }
 
-    fn parse_mediator(&mut self, node: Node<'a>) -> Result<()> {
+    fn parse_mediator(&mut self, node: Node<'a>) -> Result<Option<Vec<Diagnostic>>> {
         let mut cursor = node.walk();
-        let node_type = node.named_children(&mut cursor).next();
-        match node_type {
-            Some(mediator_typ) => match Mediators::from_str(mediator_typ.kind()) {
+        let next_child = node.named_children(&mut cursor).next();
+        match next_child {
+            Some(next_child) => match Mediators::from_str(next_child.kind()) {
                 Ok(mediator) => match mediator {
-                    Mediators::Log => self.parse_log_mediator(node),
-                    Mediators::Property => self.parse_property_mediator(node),
+                    Mediators::Log => self.parse_log_mediator(next_child),
+                    Mediators::Property => self.parse_property_mediator(next_child),
                 },
                 Err(mediator_err) => {
-                    println!("Error parsing mediator: {}", mediator_err);
                     Err(anyhow::anyhow!("Error parsing mediator: {}", mediator_err))
                 }
             },
@@ -85,18 +113,33 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn parse_log_mediator(&mut self, node: Node<'a>) -> Result<()> {
-        let query_string = r#"(_
-        (mediator)@mediator
-        )"#;
+    fn parse_log_mediator(&mut self, node: Node<'a>) -> Result<Option<Vec<Diagnostic>>> {
+        let mut diagnostics = Vec::new();
+        let mediators = node
+            .named_children(&mut self.tree_cursor)
+            .filter(|node| node.kind() == "mediator")
+            .filter_map(|node| node.child(0))
+            .collect::<Vec<_>>();
 
-        let props = self.query_props(query_string, node);
+        for mediator in mediators {
+            let kind = mediator.kind();
+            if kind != "property" {
+                diagnostics.push(Diagnostic::Error(Error {
+                    message: format!("Invalid mediator {}", kind),
+                    position: mediator.start_position(),
+                }));
+                continue;
+            }
+            let _ = self.parse_property_mediator(mediator);
+        }
 
-        println!("{:?}", props);
-        Ok(())
+        match diagnostics.is_empty() {
+            true => Ok(None),
+            false => Ok(Some(diagnostics)),
+        }
     }
 
-    fn parse_property_mediator(&mut self, node: Node<'_>) -> Result<()> {
+    fn parse_property_mediator(&mut self, node: Node<'_>) -> Result<Option<Vec<Diagnostic>>> {
         let query_string = r#"[
            (_
                (name
@@ -115,10 +158,10 @@ impl<'a> Evaluator<'a> {
 
         ]"#;
 
-        let props = self.query_props(query_string, node);
+        let props = self.query_capture(query_string, node);
 
         //if the expression contains a $ctx: then we need to make sure that the property is defined
-        if let Some(expression) = props.get("expression") {
+        if let Some(expression) = props.get("expression").map(|c| &c.value) {
             if expression.contains("$ctx:") {
                 let ctx_prop = expression
                     .split_once("$ctx:")
@@ -134,12 +177,12 @@ impl<'a> Evaluator<'a> {
         }
 
         if let Some(name) = props.get("name") {
-            self.properties.insert(name.to_owned());
+            self.properties.insert(name.value.clone());
         }
-        Ok(())
+        Ok(None)
     }
 
-    fn query_props(&mut self, query_string: &str, node: Node) -> HashMap<String, String> {
+    fn query_capture(&mut self, query_string: &str, node: Node) -> HashMap<String, CaptureDetails> {
         let query = Query::new(tree_sitter_apachesynapse::language(), query_string)
             .unwrap_or_else(|e| panic!("Error creating query: {}", e));
 
@@ -160,35 +203,18 @@ impl<'a> Evaluator<'a> {
                     eprintln!("Error getting capture value");
                     "".to_owned()
                 };
+                let end_position = capture.node.end_position();
 
-                acc.insert(key, value);
+                acc.insert(
+                    key,
+                    CaptureDetails {
+                        value,
+                        end_position,
+                    },
+                );
 
                 acc
             })
-    }
-}
-
-impl<'a> Iterator for PreOrderTraversal<'a> {
-    type Item = tree_sitter::Node<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let cursor = match self.tree_cursor.as_mut() {
-            Some(c) => c,
-            None => return None,
-        };
-
-        let node = cursor.node();
-        if cursor.goto_first_child() || cursor.goto_next_sibling() {
-            Some(node)
-        } else {
-            while !cursor.goto_next_sibling() {
-                if !cursor.goto_parent() {
-                    self.tree_cursor = None;
-                    return Some(node);
-                }
-            }
-            Some(node)
-        }
     }
 }
 
@@ -277,7 +303,7 @@ mod tests {
             .expect("Error loading apache-synapse language");
         let tree = parser.parse(input, None).unwrap();
         let mut evaluator = Evaluator::new(&tree, input).unwrap();
-        evaluator.eval().unwrap();
+        let _ = evaluator.eval().unwrap();
         assert!(evaluator.properties.len() == 2);
         assert!(evaluator.properties.contains("message"));
     }
