@@ -8,11 +8,13 @@ use std::{
 use anyhow::Result;
 use tree_sitter::{Node, Point, Query, QueryCursor, Tree, TreeCursor};
 
+use tower_lsp::lsp_types;
+
 /// The main object that is used to evaluate apache-synapse programs.
-pub struct Evaluator<'a> {
-    tree_cursor: TreeCursor<'a>,
+pub struct Evaluator {
+    tree: Tree,
     properties: HashSet<String>,
-    text: &'a str,
+    text: String,
 }
 
 /// The different types of diagnostics that can be returned by the evaluator.
@@ -49,15 +51,10 @@ struct CaptureDetails {
     end_position: Point,
 }
 
-impl<'a> Evaluator<'a> {
-    pub fn new(tree: &'a Tree, text: &'a str) -> Result<Self> {
-        if tree.language() != tree_sitter_apachesynapse::language() {
-            return Err(anyhow::anyhow!(
-                "Invalid language tree, expected an apache-synapse tree"
-            ));
-        }
+impl Evaluator {
+    pub fn new(tree: Tree, text: String) -> Result<Self> {
         Ok(Evaluator {
-            tree_cursor: tree.walk(),
+            tree,
             properties: HashSet::new(),
             text,
         })
@@ -65,11 +62,11 @@ impl<'a> Evaluator<'a> {
 
     pub fn eval(&mut self) -> Result<Vec<Diagnostic>> {
         let mut diagnostics: Vec<Diagnostic> = Vec::new();
-        let mut cursor = self.tree_cursor.clone();
+        let tree = self.tree.clone();
+        let mut cursor = tree.root_node().walk();
 
         //TODO: not hardcore to sequence
-        let mut children = self
-            .tree_cursor
+        let mut children = cursor
             .node()
             .named_children(&mut cursor)
             .filter(|node| node.kind() == "sequence_definition");
@@ -96,7 +93,7 @@ impl<'a> Evaluator<'a> {
         Ok(diagnostics)
     }
 
-    fn parse_mediator(&mut self, node: Node<'a>) -> Result<Option<Vec<Diagnostic>>> {
+    fn parse_mediator(&mut self, node: Node) -> Result<Option<Vec<Diagnostic>>> {
         let mut cursor = node.walk();
         let next_child = node.named_children(&mut cursor).next();
         match next_child {
@@ -113,10 +110,11 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn parse_log_mediator(&mut self, node: Node<'a>) -> Result<Option<Vec<Diagnostic>>> {
+    fn parse_log_mediator(&mut self, node: Node) -> Result<Option<Vec<Diagnostic>>> {
         let mut diagnostics = Vec::new();
+        let mut cursor = node.walk();
         let mediators = node
-            .named_children(&mut self.tree_cursor)
+            .named_children(&mut cursor)
             .filter(|node| node.kind() == "mediator")
             .filter_map(|node| node.child(0))
             .collect::<Vec<_>>();
@@ -232,32 +230,7 @@ impl FromStr for Mediators {
 
 #[cfg(test)]
 mod tests {
-    use crate::PreOrderTraversal;
-
     use super::Evaluator;
-
-    #[test]
-    fn validate_tree_language() {
-        let input = "foo";
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(tree_sitter_apachesynapse::language())
-            .expect("Error loading apache-synapse language");
-        let tree = parser.parse(input, None).unwrap();
-        let evaluator = Evaluator::new(&tree, input);
-        assert!(evaluator.is_ok());
-
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(tree_sitter_rust::language())
-            .expect("Error loading rust language");
-        let tree = parser.parse(input, None).unwrap();
-        let _traversal = PreOrderTraversal {
-            tree_cursor: Some(tree.walk()),
-        };
-        let evaluator = Evaluator::new(&tree, input);
-        assert!(evaluator.is_err());
-    }
 
     #[test]
     fn property_mediator() {
@@ -275,7 +248,7 @@ mod tests {
             .set_language(tree_sitter_apachesynapse::language())
             .expect("Error loading apache-synapse language");
         let tree = parser.parse(input, None).unwrap();
-        let mut evaluator = Evaluator::new(&tree, input).unwrap();
+        let mut evaluator = Evaluator::new(tree, input.to_string()).unwrap();
         evaluator.eval().unwrap();
 
         println!("{:?}", evaluator.properties);
@@ -302,7 +275,7 @@ mod tests {
             .set_language(tree_sitter_apachesynapse::language())
             .expect("Error loading apache-synapse language");
         let tree = parser.parse(input, None).unwrap();
-        let mut evaluator = Evaluator::new(&tree, input).unwrap();
+        let mut evaluator = Evaluator::new(tree, input.to_string()).unwrap();
         let _ = evaluator.eval().unwrap();
         assert!(evaluator.properties.len() == 2);
         assert!(evaluator.properties.contains("message"));
@@ -331,4 +304,41 @@ mod tests {
             assert!(false)
         }
     */
+}
+
+impl Diagnostic {
+    pub fn into_lsp_type(&self) -> Result<lsp_types::Diagnostic> {
+        match self {
+            Diagnostic::Error(err) => Ok(lsp_types::Diagnostic {
+                range: lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: err.position.row as u32,
+                        character: err.position.column as u32,
+                    },
+                    end: lsp_types::Position {
+                        line: err.position.row as u32,
+                        character: err.position.column as u32,
+                    },
+                },
+                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                message: err.message.clone(),
+                ..Default::default()
+            }),
+            Diagnostic::Warning(warning) => Ok(lsp_types::Diagnostic {
+                range: lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: warning.position.row as u32,
+                        character: warning.position.column as u32,
+                    },
+                    end: lsp_types::Position {
+                        line: warning.position.row as u32,
+                        character: warning.position.column as u32,
+                    },
+                },
+                severity: Some(lsp_types::DiagnosticSeverity::WARNING),
+                message: warning.message.clone(),
+                ..Default::default()
+            }),
+        }
+    }
 }

@@ -2,7 +2,6 @@
 members = [
     "synapse-analyzer",
     "apache-synapse",
-    "tree-sitter-parser",
     "synapse-evaluator",
 ]
 resolver = "2"
