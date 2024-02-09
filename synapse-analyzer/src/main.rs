@@ -129,6 +129,7 @@ impl Backend {
             .expect("Error loading language");
 
         let tree = parser.parse(&params.text, None).unwrap();
+        self.tree_map.insert(params.uri.to_string(), tree.clone());
         let eval = Arc::new(Mutex::new(Evaluator::new(tree.clone(), params.text)));
 
         let diagnostics = eval.lock().await.as_mut().unwrap().eval();

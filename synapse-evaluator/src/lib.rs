@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use tree_sitter::{Node, Point, Query, QueryCursor, Tree, TreeCursor};
+use tree_sitter::{Node, Point, Query, QueryCursor, Tree};
 
 use tower_lsp::lsp_types;
 
@@ -25,13 +25,13 @@ pub enum Diagnostic {
 }
 
 #[derive(Debug)]
-struct Error {
+pub struct Error {
     message: String,
     position: Point,
 }
 
 #[derive(Debug)]
-struct Warning {
+pub struct Warning {
     message: String,
     position: Point,
 }
@@ -41,12 +41,8 @@ pub enum Mediators {
     Property,
 }
 
-struct PreOrderTraversal<'a> {
-    tree_cursor: Option<TreeCursor<'a>>,
-}
-
 #[derive(Debug)]
-struct CaptureDetails {
+pub struct CaptureDetails {
     value: String,
     end_position: Point,
 }
@@ -128,7 +124,11 @@ impl Evaluator {
                 }));
                 continue;
             }
-            let _ = self.parse_property_mediator(mediator);
+            let property_diagnostics = self.parse_property_mediator(mediator);
+
+            if let Ok(Some(child_diagnostics)) = property_diagnostics {
+                diagnostics.extend(child_diagnostics);
+            }
         }
 
         match diagnostics.is_empty() {
@@ -138,6 +138,7 @@ impl Evaluator {
     }
 
     fn parse_property_mediator(&mut self, node: Node<'_>) -> Result<Option<Vec<Diagnostic>>> {
+        let mut diagnostics = Vec::new();
         let query_string = r#"[
            (_
                (name
@@ -168,8 +169,11 @@ impl Evaluator {
                     .strip_suffix('"')
                     .ok_or_else(|| anyhow::anyhow!("Invalid expression"))?;
                 if !self.properties.contains(ctx_prop) {
-                    println!("Property {} is not defined", ctx_prop);
-                    return Err(anyhow::anyhow!("Property {} is not defined", ctx_prop));
+                    diagnostics.push(Diagnostic::Error(Error {
+                        message: format!("Property {} is not defined", ctx_prop),
+                        position: props.get("expression").unwrap().end_position,
+                    }));
+                    println!("diagnostics: {:?}", diagnostics);
                 }
             }
         }
@@ -177,7 +181,10 @@ impl Evaluator {
         if let Some(name) = props.get("name") {
             self.properties.insert(name.value.clone());
         }
-        Ok(None)
+        match diagnostics.is_empty() {
+            true => Ok(None),
+            false => Ok(Some(diagnostics)),
+        }
     }
 
     fn query_capture(&mut self, query_string: &str, node: Node) -> HashMap<String, CaptureDetails> {
