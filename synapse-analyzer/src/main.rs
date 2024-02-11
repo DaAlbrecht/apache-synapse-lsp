@@ -1,20 +1,26 @@
-use std::sync::Arc;
-
-use ::tree_sitter::{Point, Tree};
 use apache_synapse::{init_stores, APACHE_SYNAPSE_MEDIATORS, TEXT_STORE};
 use dashmap::DashMap;
 use ropey::Rope;
+use std::sync::Arc;
 use synapse_evaluator::Evaluator;
 use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tracing::info;
+use tree_sitter::{Point, Tree};
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
     document_map: DashMap<String, Rope>,
     tree_map: DashMap<String, Tree>,
+}
+
+struct TextDocumentItem {
+    uri: Url,
+    text: String,
+    version: i32,
 }
 
 #[tower_lsp::async_trait]
@@ -100,7 +106,7 @@ impl LanguageServer for Backend {
         .await
     }
 
-    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
         let completion_list = CompletionList {
             is_incomplete: false,
             items: APACHE_SYNAPSE_MEDIATORS
@@ -113,11 +119,6 @@ impl LanguageServer for Backend {
     }
 }
 
-struct TextDocumentItem {
-    uri: Url,
-    text: String,
-    version: i32,
-}
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let rope = ropey::Rope::from_str(&params.text);
@@ -151,15 +152,19 @@ impl Backend {
 
 fn into_lsp_type(evaluator_diagnostics: Vec<synapse_evaluator::Diagnostic>) -> Vec<Diagnostic> {
     let mut lsp_diagnostics = Vec::new();
-    for diagnostic in evaluator_diagnostics {
-        diagnostic.into_lsp_type().map(|d| lsp_diagnostics.push(d));
-    }
+    evaluator_diagnostics.iter().for_each(|e_diagnostics| {
+        if let Ok(lsp_diagnostic) = e_diagnostics.into_lsp_type() {
+            lsp_diagnostics.push(lsp_diagnostic);
+        }
+    });
     lsp_diagnostics
 }
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
+
+    info!("Starting server...");
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
