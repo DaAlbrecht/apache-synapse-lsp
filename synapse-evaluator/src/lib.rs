@@ -59,30 +59,46 @@ impl Evaluator {
     pub fn eval(&mut self) -> Result<Vec<Diagnostic>> {
         let mut diagnostics: Vec<Diagnostic> = Vec::new();
         let tree = self.tree.clone();
-        let mut cursor = tree.root_node().walk();
+        let root = tree.root_node();
+        let mut cursor = tree.walk();
 
-        //TODO: not hardcore to sequence
+        if root.has_error() {
+            self.parse_error_node(root);
+        }
+
         let mut children = cursor
             .node()
             .named_children(&mut cursor)
             .filter(|node| node.kind() == "sequence_definition");
 
-        let mut cursor = children.next().unwrap().walk();
+        let seuqnce_definition = children
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("No sequence definition found in the root node"))?;
 
-        let children = cursor
-            .node()
-            .named_children(&mut cursor)
-            .filter(|node| node.kind() == "mediator");
+        if seuqnce_definition.has_error() {
+            self.parse_error_node(seuqnce_definition);
+        }
 
-        for child in children {
-            match self.parse_mediator(child) {
-                Ok(Some(child_diagnostics)) => {
-                    diagnostics.extend(child_diagnostics);
+        let mut cursor = seuqnce_definition.walk();
+
+        cursor.goto_first_child();
+
+        while cursor.goto_next_sibling() {
+            let node = cursor.node();
+
+            if node.has_error() {
+                println!("node: {:?}", node);
+                self.parse_error_node(node);
+            }
+
+            match node.kind() {
+                "mediator" => {
+                    let mediator_diagnostics = self.parse_mediator(node);
+                    if let Ok(Some(child_diagnostics)) = mediator_diagnostics {
+                        diagnostics.extend(child_diagnostics);
+                    }
                 }
-                Ok(None) => {}
-                Err(err) => {
-                    anyhow::bail!(err);
-                }
+                _ => {}
             }
         }
 
@@ -187,6 +203,8 @@ impl Evaluator {
         }
     }
 
+    fn parse_error_node(&mut self, node: Node) {}
+
     fn query_capture(&mut self, query_string: &str, node: Node) -> HashMap<String, CaptureDetails> {
         let query = Query::new(tree_sitter_apachesynapse::language(), query_string)
             .unwrap_or_else(|e| panic!("Error creating query: {}", e));
@@ -287,30 +305,24 @@ mod tests {
         assert!(evaluator.properties.len() == 2);
         assert!(evaluator.properties.contains("message"));
     }
-    /*
-        #[test]
-        fn log_mediator_wrong_level() {
-            let input = r#"
+    #[test]
+    fn log_mediator_wrong_level() {
+        let input = r#"
             <?xml version="1.0" encoding="UTF-8"?>
                 <sequence name="main">
                     <log level="foo">
-                        <property name="message" value="Hello, world!"/>
-                        <property name="foo" expression="$ctx:message" />
                     </log>
                 </sequence>
             "#;
-            let mut parser = tree_sitter::Parser::new();
-            parser
-                .set_language(tree_sitter_apachesynapse::language())
-                .expect("Error loading apache-synapse language");
-            let tree = parser.parse(input, None).unwrap();
-            let mut evaluator = Evaluator::new(&tree, input).unwrap();
-            evaluator.eval().unwrap();
-            assert!(evaluator.properties.len() == 2);
-            assert!(evaluator.properties.contains("message"));
-            assert!(false)
-        }
-    */
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(tree_sitter_apachesynapse::language())
+            .expect("Error loading apache-synapse language");
+        let tree = parser.parse(input, None).unwrap();
+        let mut evaluator = Evaluator::new(tree, input.to_string()).unwrap();
+        let _ = evaluator.eval().unwrap();
+        assert!(false)
+    }
 }
 
 impl Diagnostic {
