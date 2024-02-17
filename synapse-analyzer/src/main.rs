@@ -106,16 +106,37 @@ impl LanguageServer for Backend {
         .await
     }
 
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let completion_list = CompletionList {
-            is_incomplete: false,
-            items: APACHE_SYNAPSE_MEDIATORS
-                .get()
-                .expect("Mediators not initialized")
-                .clone(),
-        };
+    async fn completion(&self, param: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let pos = param.text_document_position.position;
+        let uri = param.text_document_position.text_document.uri;
+        let tree = self.tree_map.get(&uri.to_string()).expect("Tree not found");
 
-        Ok(Some(CompletionResponse::List(completion_list)))
+        let parent_node = tree
+            .root_node()
+            .descendant_for_point_range(
+                Point::new(pos.line as usize, pos.character as usize),
+                Point::new(pos.line as usize, pos.character as usize),
+            )
+            .expect("Node not found")
+            .parent()
+            .expect("Parent not found");
+
+        match parent_node.kind() {
+            "sequence_definition" => {
+                let completion_list = CompletionList {
+                    is_incomplete: false,
+                    items: APACHE_SYNAPSE_MEDIATORS
+                        .get()
+                        .expect("Mediators not initialized")
+                        .clone(),
+                };
+
+                Ok(Some(CompletionResponse::List(completion_list)))
+            }
+            _ => {
+                return Ok(None);
+            }
+        }
     }
 }
 
